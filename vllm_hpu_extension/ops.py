@@ -413,12 +413,11 @@ class DynamicFusedMOE(torch.nn.Module):
 
     def __init__(self, num_total_experts):
         super().__init__()
-        num_experts = self.num_total_experts = num_total_experts
+        self.num_total_experts = num_total_experts
         self.experts_slice = 1
 
-        while num_experts >= 64:
+        while self.num_total_experts // self.experts_slice > 64:
             self.experts_slice *= 2
-            num_experts /= self.experts_slice
 
         print(" DynamicFusedMOE num_total_experts, experts_slice =", self.num_total_experts, self.experts_slice)
 
