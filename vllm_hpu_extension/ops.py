@@ -413,9 +413,14 @@ class DynamicFusedMOE(torch.nn.Module):
 
     def __init__(self, num_total_experts):
         super().__init__()
-        self.num_experts = self.num_total_experts = num_total_experts
-        self.experts_slice = 4
-        print(" DynamicFusedMOE num_total_experts, experts_slice =", num_total_experts, self.experts_slice)
+        num_experts = self.num_total_experts = num_total_experts
+        self.experts_slice = 1
+
+        while num_experts >= 64:
+            self.experts_slice *= 2
+            num_experts /= self.experts_slice
+
+        print(" DynamicFusedMOE num_total_experts, experts_slice =", self.num_total_experts, self.experts_slice)
 
     def forward(self, hidden_states, w1, w2, score, topk):
         htorch.core.mark_step()
@@ -428,8 +433,8 @@ class DynamicFusedMOE(torch.nn.Module):
 
         for idx in range(self.experts_slice):
             experts_range = range(self.num_total_experts // self.experts_slice)
-            w1_list = [w1[i + idx * (self.num_experts // self.experts_slice),:,:].squeeze() for i in experts_range]
-            w2_list = [w2[i + idx * (self.num_experts // self.experts_slice),:,:].squeeze() for i in experts_range]
+            w1_list = [w1[i + idx * (self.num_total_experts// self.experts_slice),:,:].squeeze() for i in experts_range]
+            w2_list = [w2[i + idx * (self.num_total_experts// self.experts_slice),:,:].squeeze() for i in experts_range]
 
             hidden_states_slice = torch.ops.hpu.mixture_of_experts(
                 hidden_states=hidden_states,
@@ -439,8 +444,8 @@ class DynamicFusedMOE(torch.nn.Module):
                        w3=w2_list,
                 permuted_weights=True,
                 activation="silu",
-                experts_min=(idx * (self.num_experts // self.experts_slice)),
-                experts_max=((idx + 1) * (self.num_experts // self.experts_slice) - 1),
+                experts_min=(idx * (self.num_total_experts // self.experts_slice)),
+                experts_max=((idx + 1) * (self.num_total_experts // self.experts_slice) - 1),
             )
             final_hidden_states = final_hidden_states + hidden_states_slice
             htorch.core.mark_step()
