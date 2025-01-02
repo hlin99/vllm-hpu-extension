@@ -419,16 +419,14 @@ class DynamicFusedMOE(torch.nn.Module):
         while self.num_total_experts // self.experts_slice > 64:
             self.experts_slice *= 2
 
-        print(" DynamicFusedMOE num_total_experts, experts_slice =", self.num_total_experts, self.experts_slice)
+        print(" New DynamicFusedMOE~~~~~1 num_total_experts, experts_slice =", self.num_total_experts, self.experts_slice)
 
     def forward(self, hidden_states, w1, w2, score, topk):
         htorch.core.mark_step()
         routing_weights, selected_experts = calculate_routing_tensors(
             score, topk, hidden_states.dtype)
 
-        final_hidden_states = torch.zeros(hidden_states.shape,
-                                  dtype=hidden_states.dtype,
-                                  device=hidden_states.device)
+        #final_hidden_states = torch.empty_like(hidden_states)
 
         for idx in range(self.experts_slice):
             experts_range = range(self.num_total_experts // self.experts_slice)
@@ -440,13 +438,20 @@ class DynamicFusedMOE(torch.nn.Module):
                 expert_routing_table=selected_experts,
                 router_weights=routing_weights,
                 w12=w1_list,
-                       w3=w2_list,
+                w3=w2_list,
                 permuted_weights=True,
                 activation="silu",
                 experts_min=(idx * (self.num_total_experts // self.experts_slice)),
                 experts_max=((idx + 1) * (self.num_total_experts // self.experts_slice) - 1),
             )
-            final_hidden_states = final_hidden_states + hidden_states_slice
+            if idx == 0:
+                if self.experts_slice == 1:
+                    return hidden_states_slice.view(-1, hidden_states.shape[1])
+                else:
+                    final_hidden_states = torch.empty_like(hidden_states)
+                    final_hidden_states = hidden_states_slice
+            else:
+                final_hidden_states = final_hidden_states + hidden_states_slice
             htorch.core.mark_step()
 
         return final_hidden_states.view(-1, hidden_states.shape[1])
@@ -456,7 +461,7 @@ class DynamicFusedMOE_legacy(torch.nn.Module):
     def __init__(self, num_total_experts):
         super().__init__()
         self.num_total_experts = num_total_experts
-        print(" DynamicFusedMOE, num_total_experts=", num_total_experts)
+        print(" legacy ### DynamicFusedMOE, num_total_experts=", num_total_experts)
     def forward(self, hidden_states, w1, w2, score, topk):
         htorch.core.mark_step()
         routing_weights, selected_experts = calculate_routing_tensors(
@@ -475,7 +480,7 @@ class DynamicFusedMOE_legacy(torch.nn.Module):
             permuted_weights=True,
             activation="silu",
             experts_min=0,
-            experts_max=63 #self.num_total_experts-1
+            experts_max=self.num_total_experts-1
         )
 
         return final_hidden_states.view(-1, hidden_states.shape[1])
